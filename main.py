@@ -20,7 +20,7 @@ import os
 import asyncio
 import logging
 import sys
-from dotenv import load_dotenv
+
 import config
 import traceback
 
@@ -41,12 +41,9 @@ if sys.platform == 'win32':
     sys.stderr.reconfigure(encoding='utf-8')
 
 # Load environment variables
-load_dotenv()
-TOKEN = os.getenv('TOKEN')
-
-if not TOKEN:
-    logger.error("No token found in .env file")
-    raise ValueError("No token found in .env file")
+token = os.environ.get("DISCORD_TOKEN")
+if not token:
+    raise ValueError("DISCORD_TOKEN not found in environment variables")
 
 # Bot setup with intents
 intents = discord.Intents.all()
