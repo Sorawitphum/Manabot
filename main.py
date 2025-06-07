@@ -106,7 +106,7 @@ bot = ManaBot()
 if __name__ == "__main__":
     try:
         logger.info("Starting bot...")
-        asyncio.run(bot.start(TOKEN))
+        asyncio.run(bot.start(token))
     except KeyboardInterrupt:
         logger.info("\nBot stopped by user")
     except Exception as e:
