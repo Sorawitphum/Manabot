@@ -20,7 +20,7 @@ import os
 import asyncio
 import logging
 import sys
-
+from dotenv import load_dotenv
 import config
 import traceback
 
@@ -41,8 +41,12 @@ if sys.platform == 'win32':
     sys.stderr.reconfigure(encoding='utf-8')
 
 # Load environment variables
-token = os.environ.get("DISCORD_TOKEN")
+load_dotenv()  # This will load .env file if it exists, but won't error if it doesn't
+
+# Get token from environment variable (works both locally and on Replit)
+token = os.getenv('DISCORD_TOKEN')
 if not token:
+    logger.error("No token found in environment variables")
     raise ValueError("DISCORD_TOKEN not found in environment variables")
 
 # Bot setup with intents
@@ -123,7 +127,6 @@ if __name__ == "__main__":
     try:
         logger.info("Starting bot...")
         keep_alive()  # Start Flask server
-        token = os.environ['DISCORD_TOKEN']  # Get token from environment variable
         asyncio.run(bot.start(token))
     except KeyboardInterrupt:
         logger.info("\nBot stopped by user")
