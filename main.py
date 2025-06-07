@@ -1,3 +1,19 @@
+from flask import Flask
+from threading import Thread
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "I'm alive!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
 import discord
 from discord.ext import commands
 import os
@@ -109,7 +125,9 @@ bot = ManaBot()
 if __name__ == "__main__":
     try:
         logger.info("Starting bot...")
-        asyncio.run(bot.start(TOKEN))
+        keep_alive()  # Start Flask server
+        token = os.environ['DISCORD_TOKEN']  # Get token from environment variable
+        asyncio.run(bot.start(token))
     except KeyboardInterrupt:
         logger.info("\nBot stopped by user")
     except Exception as e:
