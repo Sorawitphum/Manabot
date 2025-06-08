@@ -3,7 +3,7 @@ import random
 import aiohttp
 import discord
 
-bad_words = ["คำหยาบ", "โง่", "ควาย", "เหี้ย"]
+bad_words = ["คำหยาบ", "โง่", "ควาย", "เหี้ย","ควย","หี","ไอ้สัส"]
 
 class Filter(commands.Cog):
     def __init__(self, bot):
