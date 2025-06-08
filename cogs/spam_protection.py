@@ -168,12 +168,12 @@ class SpamProtection(commands.Cog):
         embed.add_field(
             name="📝 คำสั่งพื้นฐาน",
             value=(
-                "`!spam config <setting> <value>` - ตั้งค่าต่างๆ\n"
-                "`!spam status` - แสดงสถานะการตั้งค่า\n"
-                "`!spam reset` - รีเซ็ตประวัติการเตือน\n"
-                "`!spam patterns` - แสดงรูปแบบข้อความสแปม\n"
-                "`!spam add <pattern>` - เพิ่มรูปแบบข้อความสแปม\n"
-                "`!spam remove <pattern>` - ลบรูปแบบข้อความสแปม"
+                "`!spamconfig<setting><value>` - ตั้งค่าต่างๆ\n"
+                "`!spamstatus` - แสดงสถานะการตั้งค่า\n"
+                "`!spamreset` - รีเซ็ตประวัติการเตือน\n"
+                "`!spampatterns` - แสดงรูปแบบข้อความสแปม\n"
+                "`!spamadd<pattern>` - เพิ่มรูปแบบข้อความสแปม\n"
+                "`!spamremove<pattern>` - ลบรูปแบบข้อความสแปม"
             ),
             inline=False
         )
@@ -190,7 +190,7 @@ class SpamProtection(commands.Cog):
         )
         await ctx.send(embed=embed)
 
-    @spam.command(name="config")
+    @commands.command(name="spamconfig")
     @commands.has_permissions(administrator=True)
     async def spam_config(self, ctx, setting: str, value: int):
         """ตั้งค่าระบบป้องกันสแปม"""
@@ -218,7 +218,7 @@ class SpamProtection(commands.Cog):
             await ctx.send("❌ เกิดข้อผิดพลาดในการตั้งค่า กรุณาลองใหม่อีกครั้ง")
             self.logger.error(f"Error in spam config: {e}")
 
-    @spam.command(name="status")
+    @commands.command(name="spamstatus")
     @commands.has_permissions(administrator=True)
     async def spam_status(self, ctx):
         """แสดงสถานะการตั้งค่าระบบป้องกันสแปม"""
@@ -238,7 +238,7 @@ class SpamProtection(commands.Cog):
             await ctx.send("❌ เกิดข้อผิดพลาดในการแสดงสถานะ")
             self.logger.error(f"Error in spam status: {e}")
 
-    @spam.command(name="reset")
+    @commands.command(name="spamreset")
     @commands.has_permissions(administrator=True)
     async def spam_reset(self, ctx):
         """รีเซ็ตประวัติการเตือนทั้งหมด"""
@@ -250,7 +250,7 @@ class SpamProtection(commands.Cog):
             await ctx.send("❌ เกิดข้อผิดพลาดในการรีเซ็ต")
             self.logger.error(f"Error in spam reset: {e}")
 
-    @spam.command(name="patterns")
+    @commands.command(name="spampatterns")
     @commands.has_permissions(administrator=True)
     async def spam_patterns(self, ctx):
         """แสดงรูปแบบข้อความสแปมทั้งหมด"""
@@ -271,7 +271,7 @@ class SpamProtection(commands.Cog):
             await ctx.send("❌ เกิดข้อผิดพลาดในการแสดงรูปแบบ")
             self.logger.error(f"Error in spam patterns: {e}")
 
-    @spam.command(name="add")
+    @commands.command(name="spamadd")
     @commands.has_permissions(administrator=True)
     async def spam_add_pattern(self, ctx, pattern: str):
         """เพิ่มรูปแบบข้อความสแปม"""
@@ -287,7 +287,7 @@ class SpamProtection(commands.Cog):
             await ctx.send("❌ เกิดข้อผิดพลาดในการเพิ่มรูปแบบ")
             self.logger.error(f"Error in spam add pattern: {e}")
 
-    @spam.command(name="remove")
+    @commands.command(name="spamremove")
     @commands.has_permissions(administrator=True)
     async def spam_remove_pattern(self, ctx, pattern: str):
         """ลบรูปแบบข้อความสแปม"""
