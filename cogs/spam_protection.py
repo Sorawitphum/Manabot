@@ -4,6 +4,7 @@ import time
 from collections import defaultdict
 import re
 import logging
+import asyncio
 
 class SpamProtection(commands.Cog):
     def __init__(self, bot):
@@ -11,11 +12,15 @@ class SpamProtection(commands.Cog):
         self.logger = logging.getLogger(__name__)
         # เก็บข้อมูลการส่งข้อความของผู้ใช้
         self.message_history = defaultdict(list)
+        # เก็บประวัติการเตือนของผู้ใช้
+        self.warning_history = defaultdict(int)
         # ตั้งค่าการป้องกันสแปม
         self.spam_settings = {
-            'message_limit': 5,  # จำนวนข้อความสูงสุดที่อนุญาต
-            'time_window': 5,    # ระยะเวลา (วินาที)
-            'mute_duration': 300 # ระยะเวลาลงโทษ (วินาที)
+            'message_limit': 5,      # จำนวนข้อความสูงสุดที่อนุญาต
+            'time_window': 5,        # ระยะเวลา (วินาที)
+            'mute_duration': 300,    # ระยะเวลาลงโทษ (วินาที)
+            'warning_limit': 3,      # จำนวนครั้งสูงสุดที่เตือนก่อนเตะ
+            'warning_reset': 3600    # ระยะเวลารีเซ็ตการเตือน (วินาที)
         }
         # รูปแบบข้อความสแปม
         self.spam_patterns = [
@@ -26,6 +31,15 @@ class SpamProtection(commands.Cog):
             r'(?i)(?:gay|fuck|shit|bitch)',  # คำหยาบ
         ]
         self.logger.info("Spam Protection system initialized")
+        # เริ่มการรีเซ็ตการเตือนอัตโนมัติ
+        self.bot.loop.create_task(self.reset_warnings())
+
+    async def reset_warnings(self):
+        """รีเซ็ตประวัติการเตือนทุกๆ warning_reset วินาที"""
+        while True:
+            await asyncio.sleep(self.spam_settings['warning_reset'])
+            self.warning_history.clear()
+            self.logger.info("Warning history has been reset")
 
     def is_spam_message(self, message):
         """ตรวจสอบว่าข้อความเป็นสแปมหรือไม่"""
@@ -35,6 +49,73 @@ class SpamProtection(commands.Cog):
                 self.logger.info(f"Spam detected: {message.content}")
                 return True
         return False
+
+    async def send_warning(self, channel, user, reason):
+        """ส่งข้อความเตือน"""
+        try:
+            embed = discord.Embed(
+                title="⚠️ การเตือน",
+                description=f"{user.mention} {reason}",
+                color=discord.Color.red()
+            )
+            warning_msg = await channel.send(embed=embed)
+            await warning_msg.delete(delay=10)  # ลบข้อความเตือนหลังจาก 10 วินาที
+            self.logger.info(f"Warning sent to {user.id}: {reason}")
+        except Exception as e:
+            self.logger.error(f"Failed to send warning: {e}")
+
+    async def handle_spam(self, message, reason):
+        """จัดการกรณีสแปม"""
+        user_id = message.author.id
+        self.warning_history[user_id] += 1
+        
+        # ลบข้อความสแปม
+        try:
+            await message.delete()
+            self.logger.info(f"Deleted spam message from user {user_id}")
+        except discord.Forbidden:
+            self.logger.error(f"Cannot delete message: Missing permissions")
+            return
+
+        # ตรวจสอบจำนวนครั้งที่เตือน
+        if self.warning_history[user_id] >= self.spam_settings['warning_limit']:
+            # เตะผู้ใช้ออก
+            try:
+                await message.author.kick(reason=f"Spam Protection: {reason}")
+                await self.send_warning(
+                    message.channel,
+                    message.author,
+                    f"ถูกเตะออกเนื่องจาก {reason}"
+                )
+                self.logger.info(f"User {user_id} has been kicked")
+                self.warning_history[user_id] = 0
+            except discord.Forbidden:
+                await self.send_warning(
+                    message.channel,
+                    message.author,
+                    "ไม่สามารถจัดการผู้ใช้ที่สแปมได้ กรุณาตรวจสอบสิทธิ์ของบอท"
+                )
+                self.logger.error(f"Cannot kick user: Missing permissions")
+        else:
+            # timeout ผู้ใช้
+            try:
+                await message.author.timeout(
+                    duration=self.spam_settings['mute_duration'],
+                    reason=f"Spam Protection: {reason}"
+                )
+                await self.send_warning(
+                    message.channel,
+                    message.author,
+                    f"ถูกระงับการใช้งานชั่วคราวเนื่องจาก {reason}"
+                )
+                self.logger.info(f"User {user_id} has been timed out")
+            except discord.Forbidden:
+                await self.send_warning(
+                    message.channel,
+                    message.author,
+                    "ไม่สามารถระงับการใช้งานได้ กรุณาตรวจสอบสิทธิ์ของบอท"
+                )
+                self.logger.error(f"Cannot timeout user: Missing permissions")
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -63,89 +144,67 @@ class SpamProtection(commands.Cog):
             # ตรวจสอบการสแปม
             if len(self.message_history[user_id]) > self.spam_settings['message_limit']:
                 self.logger.info(f"Rate limit exceeded for user {user_id}")
-                # ลบข้อความสแปม
-                try:
-                    await message.delete()
-                    self.logger.info(f"Deleted spam message from user {user_id}")
-                except discord.Forbidden:
-                    self.logger.error(f"Cannot delete message: Missing permissions")
-                    return
-                
-                # ลงโทษผู้ใช้
-                try:
-                    # ลองใช้ timeout ก่อน
-                    await message.author.timeout(
-                        duration=self.spam_settings['mute_duration'],
-                        reason="Spam Protection: Message Rate Limit Exceeded"
-                    )
-                    await message.channel.send(
-                        f"⚠️ {message.author.mention} ถูกระงับการใช้งานชั่วคราวเนื่องจากส่งข้อความเร็วเกินไป",
-                        delete_after=10
-                    )
-                    self.logger.info(f"User {user_id} has been timed out")
-                except discord.Forbidden:
-                    # ถ้าไม่มีสิทธิ์ timeout ให้เตะออก
-                    try:
-                        await message.author.kick(reason="Spam Protection: Message Rate Limit Exceeded")
-                        await message.channel.send(
-                            f"⚠️ {message.author.mention} ถูกเตะออกเนื่องจากส่งข้อความเร็วเกินไป",
-                            delete_after=10
-                        )
-                        self.logger.info(f"User {user_id} has been kicked")
-                    except discord.Forbidden:
-                        await message.channel.send(
-                            "❌ ไม่สามารถจัดการผู้ใช้ที่สแปมได้ กรุณาตรวจสอบสิทธิ์ของบอท",
-                            delete_after=10
-                        )
-                        self.logger.error(f"Cannot manage user: Missing permissions")
+                await self.handle_spam(message, "ส่งข้อความเร็วเกินไป")
+                return
 
             # ตรวจสอบเนื้อหาข้อความ
             if self.is_spam_message(message):
                 self.logger.info(f"Spam content detected from user {user_id}")
-                # ลบข้อความสแปม
-                try:
-                    await message.delete()
-                    self.logger.info(f"Deleted spam message from user {user_id}")
-                except discord.Forbidden:
-                    self.logger.error(f"Cannot delete message: Missing permissions")
-                    return
-                
-                # แจ้งเตือน
-                try:
-                    await message.author.timeout(
-                        duration=self.spam_settings['mute_duration'],
-                        reason="Spam Protection: Spam Content Detected"
-                    )
-                    await message.channel.send(
-                        f"⚠️ {message.author.mention} ถูกระงับการใช้งานชั่วคราวเนื่องจากส่งข้อความสแปม",
-                        delete_after=10
-                    )
-                    self.logger.info(f"User {user_id} has been timed out")
-                except discord.Forbidden:
-                    try:
-                        await message.author.kick(reason="Spam Protection: Spam Content Detected")
-                        await message.channel.send(
-                            f"⚠️ {message.author.mention} ถูกเตะออกเนื่องจากส่งข้อความสแปม",
-                            delete_after=10
-                        )
-                        self.logger.info(f"User {user_id} has been kicked")
-                    except discord.Forbidden:
-                        await message.channel.send(
-                            "❌ ไม่สามารถจัดการผู้ใช้ที่สแปมได้ กรุณาตรวจสอบสิทธิ์ของบอท",
-                            delete_after=10
-                        )
-                        self.logger.error(f"Cannot manage user: Missing permissions")
+                await self.handle_spam(message, "ส่งข้อความสแปม")
+                return
 
         except Exception as e:
             self.logger.error(f"Error in spam protection: {e}")
 
-    @commands.command(name="spamconfig")
+    @commands.group(name="spam", invoke_without_command=True)
+    @commands.has_permissions(administrator=True)
+    async def spam(self, ctx):
+        """คำสั่งจัดการระบบป้องกันสแปม"""
+        embed = discord.Embed(
+            title="🛡️ ระบบป้องกันสแปม",
+            description="คำสั่งสำหรับจัดการระบบป้องกันสแปม",
+            color=discord.Color.blue()
+        )
+        embed.add_field(
+            name="📝 คำสั่งพื้นฐาน",
+            value=(
+                "`!spam config <setting> <value>` - ตั้งค่าต่างๆ\n"
+                "`!spam status` - แสดงสถานะการตั้งค่า\n"
+                "`!spam reset` - รีเซ็ตประวัติการเตือน\n"
+                "`!spam patterns` - แสดงรูปแบบข้อความสแปม\n"
+                "`!spam add <pattern>` - เพิ่มรูปแบบข้อความสแปม\n"
+                "`!spam remove <pattern>` - ลบรูปแบบข้อความสแปม"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="⚙️ การตั้งค่าที่มี",
+            value=(
+                "`message_limit` - จำนวนข้อความสูงสุดที่อนุญาต\n"
+                "`time_window` - ระยะเวลา (วินาที)\n"
+                "`mute_duration` - ระยะเวลาลงโทษ (วินาที)\n"
+                "`warning_limit` - จำนวนครั้งสูงสุดที่เตือนก่อนเตะ\n"
+                "`warning_reset` - ระยะเวลารีเซ็ตการเตือน (วินาที)"
+            ),
+            inline=False
+        )
+        await ctx.send(embed=embed)
+
+    @spam.command(name="config")
     @commands.has_permissions(administrator=True)
     async def spam_config(self, ctx, setting: str, value: int):
         """ตั้งค่าระบบป้องกันสแปม"""
         try:
             if setting not in self.spam_settings:
-                await ctx.send("❌ การตั้งค่าไม่ถูกต้อง\nการตั้งค่าที่มี: message_limit, time_window, mute_duration")
+                await ctx.send(
+                    "❌ การตั้งค่าไม่ถูกต้อง\n"
+                    "การตั้งค่าที่มี:\n"
+                    "- message_limit: จำนวนข้อความสูงสุดที่อนุญาต\n"
+                    "- time_window: ระยะเวลา (วินาที)\n"
+                    "- mute_duration: ระยะเวลาลงโทษ (วินาที)\n"
+                    "- warning_limit: จำนวนครั้งสูงสุดที่เตือนก่อนเตะ\n"
+                    "- warning_reset: ระยะเวลารีเซ็ตการเตือน (วินาที)"
+                )
                 return
 
             if value < 1:
@@ -158,6 +217,91 @@ class SpamProtection(commands.Cog):
         except Exception as e:
             await ctx.send("❌ เกิดข้อผิดพลาดในการตั้งค่า กรุณาลองใหม่อีกครั้ง")
             self.logger.error(f"Error in spam config: {e}")
+
+    @spam.command(name="status")
+    @commands.has_permissions(administrator=True)
+    async def spam_status(self, ctx):
+        """แสดงสถานะการตั้งค่าระบบป้องกันสแปม"""
+        try:
+            embed = discord.Embed(
+                title="⚙️ สถานะระบบป้องกันสแปม",
+                color=discord.Color.blue()
+            )
+            for setting, value in self.spam_settings.items():
+                embed.add_field(
+                    name=setting,
+                    value=str(value),
+                    inline=True
+                )
+            await ctx.send(embed=embed)
+        except Exception as e:
+            await ctx.send("❌ เกิดข้อผิดพลาดในการแสดงสถานะ")
+            self.logger.error(f"Error in spam status: {e}")
+
+    @spam.command(name="reset")
+    @commands.has_permissions(administrator=True)
+    async def spam_reset(self, ctx):
+        """รีเซ็ตประวัติการเตือนทั้งหมด"""
+        try:
+            self.warning_history.clear()
+            await ctx.send("✅ รีเซ็ตประวัติการเตือนเรียบร้อยแล้ว")
+            self.logger.info("Warning history has been manually reset")
+        except Exception as e:
+            await ctx.send("❌ เกิดข้อผิดพลาดในการรีเซ็ต")
+            self.logger.error(f"Error in spam reset: {e}")
+
+    @spam.command(name="patterns")
+    @commands.has_permissions(administrator=True)
+    async def spam_patterns(self, ctx):
+        """แสดงรูปแบบข้อความสแปมทั้งหมด"""
+        try:
+            embed = discord.Embed(
+                title="🔍 รูปแบบข้อความสแปม",
+                description="รายการรูปแบบข้อความที่ถูกตรวจจับเป็นสแปม",
+                color=discord.Color.blue()
+            )
+            for i, pattern in enumerate(self.spam_patterns, 1):
+                embed.add_field(
+                    name=f"รูปแบบที่ {i}",
+                    value=f"`{pattern}`",
+                    inline=False
+                )
+            await ctx.send(embed=embed)
+        except Exception as e:
+            await ctx.send("❌ เกิดข้อผิดพลาดในการแสดงรูปแบบ")
+            self.logger.error(f"Error in spam patterns: {e}")
+
+    @spam.command(name="add")
+    @commands.has_permissions(administrator=True)
+    async def spam_add_pattern(self, ctx, pattern: str):
+        """เพิ่มรูปแบบข้อความสแปม"""
+        try:
+            if pattern in self.spam_patterns:
+                await ctx.send("❌ รูปแบบนี้มีอยู่แล้ว")
+                return
+
+            self.spam_patterns.append(pattern)
+            await ctx.send(f"✅ เพิ่มรูปแบบ `{pattern}` เรียบร้อยแล้ว")
+            self.logger.info(f"Added spam pattern: {pattern}")
+        except Exception as e:
+            await ctx.send("❌ เกิดข้อผิดพลาดในการเพิ่มรูปแบบ")
+            self.logger.error(f"Error in spam add pattern: {e}")
+
+    @spam.command(name="remove")
+    @commands.has_permissions(administrator=True)
+    async def spam_remove_pattern(self, ctx, pattern: str):
+        """ลบรูปแบบข้อความสแปม"""
+        try:
+            if pattern not in self.spam_patterns:
+                await ctx.send("❌ ไม่พบรูปแบบนี้")
+                return
+
+            self.spam_patterns.remove(pattern)
+            await ctx.send(f"✅ ลบรูปแบบ `{pattern}` เรียบร้อยแล้ว")
+            self.logger.info(f"Removed spam pattern: {pattern}")
+        except Exception as e:
+            await ctx.send("❌ เกิดข้อผิดพลาดในการลบรูปแบบ")
+            self.logger.error(f"Error in spam remove pattern: {e}")
 
 async def setup(bot):
     await bot.add_cog(SpamProtection(bot))
